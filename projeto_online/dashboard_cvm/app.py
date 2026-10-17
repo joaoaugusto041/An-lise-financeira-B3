@@ -27,8 +27,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 Dashboard Financeiro B3SA3 — Drill Down Interativo")
-st.markdown("Explore os detalhes financeiros com gráficos hierárquicos interativos (estilo Power BI). Clique nas fatias para navegar entre os níveis.")
+st.title("📊 Dashboard Financeiro B3SA3 — Drill Down na Ponte (Waterfall)")
+st.markdown("Navegue pelos níveis de detalhe da ponte de resultado. Selecione uma macro-etapa para abrir sua composição detalhada.")
 
 # --------------------------------------------------
 # 1. CARREGAMENTO DOS DADOS DA B3
@@ -55,7 +55,6 @@ if df_b3_raw is not None:
     df_gerencial.columns = nomes_colunas
     df_gerencial = df_gerencial.dropna(subset=["Conta / Indicador"])
     
-    # Formatação numérica padrão Brasil (anos limpos sem ponto de milhar)
     for c in df_gerencial.columns[1:]:
         def formatar_valor(val, nome_coluna):
             try:
@@ -73,89 +72,133 @@ if df_b3_raw is not None:
         df_gerencial[c] = df_gerencial[c].apply(lambda x: formatar_valor(x, c))
 
 # --------------------------------------------------
-# 2. PAINEL DE CONTROLE DE FILTROS GLOBAIS
+# 2. PAINEL DE CONTROLE DO DRILL DOWN DA PONTE
 # --------------------------------------------------
 st.markdown("---")
-col_f1, col_f2 = st.columns([2, 2])
-with col_f1:
+col_wf_ctrl1, col_wf_ctrl2 = st.columns([2, 2])
+
+with col_wf_ctrl1:
+    nivel_drilldown_ponte = st.selectbox(
+        "🔍 Nível de Detalhe da Ponte (Drill Down)",
+        [
+            "1. Visão Macro Consolidada (Padrão)",
+            "2. Drill Down da Coluna de Impostos e Tributos",
+            "3. Drill Down da Coluna de Despesas Operacionais",
+            "4. Drill Down de EBITDA e Ajustes Não Recorrentes"
+        ],
+        index=0,
+        help="Selecione a coluna que deseja abrir em detalhes para reorganizar o gráfico de cascata instantaneamente."
+    )
+
+with col_wf_ctrl2:
     lista_periodos = df_gerencial.columns[1:].tolist() if not df_gerencial.empty else []
     periodo_filtro = st.selectbox(
-        "📅 Recorte Temporal para Análise",
+        "📅 Recorte Temporal",
         ["Todos os Períodos"] + lista_periodos,
         index=0
     )
-with col_f2:
-    st.markdown("<br>", unsafe_allow_html=True)
-    destacar_oportunidades = st.checkbox("🎯 Destacar Contas Críticas / Oportunidades", value=False)
 
 # --------------------------------------------------
-# 3. GRÁFICO DE DRILL DOWN HIERÁRQUICO INTERATIVO (ESTILO POWER BI)
+# 3. CONSTRUÇÃO DINÂMICA DO WATERFALL COM DRILL DOWN
 # --------------------------------------------------
-st.markdown("#### 🔍 Drill Down Hierárquico: Estrutura de Custos, Tributos e Receitas")
-st.caption("💡 *Dica:* Clique em qualquer categoria no gráfico abaixo para 'entrar' nela (drill down) e ver os subníveis detalhados. Clique no centro para voltar.")
+st.markdown("<br>", unsafe_allow_html=True)
 
-# Construção de base hierárquica (Pai -> Filho -> Valor)
-dados_hierarquia = pd.DataFrame([
-    # Ramo 1: Receitas
-    {"Categoria Macro": "Receitas", "Subcategoria": "Renda Variável & Ações", "Valor (R$ mi)": 1150.0},
-    {"Categoria Macro": "Receitas", "Subcategoria": "Renda Fixa & Derivativos", "Valor (R$ mi)": 980.0},
-    {"Categoria Macro": "Receitas", "Subcategoria": "Serviços de Tecnologia e Dados", "Value": 355.0, "Valor (R$ mi)": 355.0},
-    {"Categoria Macro": "Receitas", "Subcategoria": "Outras Receitas Operacionais", "Valor (R$ mi)": 383.0},
+if nivel_drilldown_ponte == "1. Visão Macro Consolidada (Padrão)":
+    st.markdown("#### 🌊 Ponte Consolidada do Resultado (Macro)")
+    st.caption("Visão geral de ponta a ponta. *Dica:* Use o seletor acima para dar drill down nas colunas de Impostos ou Despesas.")
     
-    # Ramo 2: Despesas Operacionais (Drill down detalhado)
-    {"Categoria Macro": "Despesas Operacionais", "Subcategoria": "Pessoal: Salários e Encargos", "Valor (R$ mi)": 285.0},
-    {"Categoria Macro": "Despesas Operacionais", "Subcategoria": "Pessoal: Bônus e DHO", "Valor (R$ mi)": 110.2},
-    {"Categoria Macro": "Despesas Operacionais", "Subcategoria": "TI: Licenças de Software & Cloud", "Valor (R$ mi)": 165.4},
-    {"Categoria Macro": "Despesas Operacionais", "Subcategoria": "TI: Links e Processamento", "Valor (R$ mi)": 82.1},
-    {"Categoria Macro": "Despesas Operacionais", "Subcategoria": "Terceiros: Consultorias e Jurídico", "Valor (R$ mi)": 95.3},
-    {"Categoria Macro": "Despesas Operacionais", "Subcategoria": "Terceiros: Market Maker", "Valor (R$ mi)": 42.0},
-    {"Categoria Macro": "Despesas Operacionais", "Subcategoria": "Amortização de Intangíveis (Cetip)", "Valor (R$ mi)": 125.8},
-    {"Categoria Macro": "Despesas Operacionais", "Subcategoria": "Despesas Administrativas Diversas", "Valor (R$ mi)": 39.4},
+    fig_waterfall = go.Figure(go.Waterfall(
+        name="B3SA3", orientation="v",
+        measure=["absolute", "relative", "relative", "total", "relative", "total", "relative", "total"],
+        x=["Receita Bruta", "(-) Deduções/Impostos", "(-) Despesas Operacionais", "EBITDA Recorrente", "(-) Ajustes Não Recorrentes", "EBITDA Reportado", "(-) D&A, Fin. & IRPJ", "Lucro Líquido Rec."],
+        textposition="outside",
+        text=["R$ 2.868 mi", "- R$ 382 mi", "- R$ 845 mi", "R$ 1.641 mi", "- R$ 42 mi", "R$ 1.599 mi", "- R$ 537 mi", "R$ 1.062 mi"],
+        y=[2868, -382, -845, 1641, -42, 1599, -537, 1062],
+        connector={"line": {"color": "rgb(100, 100, 100)"}},
+        increasing={"marker": {"color": "#2ca02c"}},
+        decreasing={"marker": {"color": "#d62728"}},
+        totals={"marker": {"color": "#1f77b4"}}
+    ))
 
-    # Ramo 3: Tributos e Impostos
-    {"Categoria Macro": "Tributos e Impostos", "Subcategoria": "PIS / COFINS", "Valor (R$ mi)": 185.4},
-    {"Categoria Macro": "Tributos e Impostos", "Subcategoria": "Imposto de Renda (IRPJ)", "Valor (R$ mi)": 145.2},
-    {"Categoria Macro": "Tributos e Impostos", "Subcategoria": "ISS (Municipal)", "Valor (R$ mi)": 92.1},
-    {"Categoria Macro": "Tributos e Impostos", "Subcategoria": "CSLL", "Valor (R$ mi)": 58.3}
-])
+elif nivel_drilldown_ponte == "2. Drill Down da Coluna de Impostos e Tributos":
+    st.markdown("#### 🏛️ Drill Down: Composição Detalhada da Coluna de Impostos")
+    st.caption("Abertura exclusiva dos tributos diretos, indiretos e créditos fiscais que compõem o montante de impostos.")
+    
+    fig_waterfall = go.Figure(go.Waterfall(
+        name="B3SA3", orientation="v",
+        measure=["absolute", "relative", "relative", "relative", "relative", "relative", "total"],
+        x=["Receita Bruta", "(-) PIS / COFINS", "(-) ISS Municipal", "(-) IRPJ (Imposto de Renda)", "(-) CSLL", "(+) Benefício Fiscal JCP", "Total Líquido de Tributos"],
+        textposition="outside",
+        text=["R$ 2.868 mi", "- R$ 185,4 mi", "- R$ 92,1 mi", "- R$ 145,2 mi", "- R$ 58,3 mi", "+ R$ 98,4 mi", "- R$ 382,6 mi"],
+        y=[2868, -185.4, -92.1, -145.2, -58.3, 98.4, -382.6],
+        connector={"line": {"color": "rgb(100, 100, 100)"}},
+        increasing={"marker": {"color": "#2ca02c"}},
+        decreasing={"marker": {"color": "#d62728"}},
+        totals={"marker": {"color": "#ff7f0e"}}
+    ))
 
-# Gráfico Sunburst (Hierarquia interativa estilo drill down)
-fig_sunburst = px.sunburst(
-    dados_hierarquia,
-    path=["Categoria Macro", "Subcategoria"],
-    values="Valor (R$ mi)",
-    color="Valor (R$ mi)",
-    color_continuous_scale="RdBu",
-    title="<b>Navegação Hierárquica por Clique (Clique nas fatias para abrir os detalhes)</b>"
-)
-fig_sunburst.update_layout(
+elif nivel_drilldown_ponte == "3. Drill Down da Coluna de Despesas Operacionais":
+    st.markdown("#### 💻 Drill Down: Composição Detalhada da Coluna de Despesas")
+    st.caption("Abertura linha a linha de cada centro de custo operacional (Pessoal, TI, Terceiros e Amortização).")
+    
+    fig_waterfall = go.Figure(go.Waterfall(
+        name="B3SA3", orientation="v",
+        measure=["absolute", "relative", "relative", "relative", "relative", "relative", "relative", "relative", "total"],
+        x=["Receita Líquida", "(-) Salários Fixos", "(-) Bônus / DHO", "(-) Software & Cloud", "(-) Links e Processamento", "(-) Consultorias/Jurídico", "(-) Market Maker", "(-) Amortização Cetip", "Total Desp. Operacionais"],
+        textposition="outside",
+        text=["R$ 2.486 mi", "- R$ 285,0 mi", "- R$ 110,2 mi", "- R$ 165,4 mi", "- R$ 82,1 mi", "- R$ 95,3 mi", "- R$ 42,0 mi", "- R$ 125,8 mi", "- R$ 905,8 mi"],
+        y=[2486, -285.0, -110.2, -165.4, -82.1, -95.3, -42.0, -125.8, -905.8],
+        connector={"line": {"color": "rgb(100, 100, 100)"}},
+        increasing={"marker": {"color": "#2ca02c"}},
+        decreasing={"marker": {"color": "#d62728"}},
+        totals={"marker": {"color": "#d62728"}}
+    ))
+
+else:
+    st.markdown("#### ⚠️ Drill Down: EBITDA Reportado vs. Recorrente (Ajustes)")
+    st.caption("Detalhamento dos efeitos não recorrentes que diferem o EBITDA Contábil do Recorrente.")
+    
+    fig_waterfall = go.Figure(go.Waterfall(
+        name="B3SA3", orientation="v",
+        measure=["absolute", "relative", "relative", "relative", "total"],
+        x=["EBITDA Recorrente", "(-) Assessorias M&A", "(-) Rescisões e Reestruturação", "(-) Provisões Cíveis", "EBITDA Reportado Final"],
+        textposition="outside",
+        text=["R$ 1.641 mi", "- R$ 18,2 mi", "- R$ 14,5 mi", "- R$ 9,3 mi", "R$ 1.599 mi"],
+        y=[1641, -18.2, -14.5, -9.3, 1599],
+        connector={"line": {"color": "rgb(100, 100, 100)"}},
+        increasing={"marker": {"color": "#2ca02c"}},
+        decreasing={"marker": {"color": "#d62728"}},
+        totals={"marker": {"color": "#1f77b4"}}
+    ))
+
+fig_waterfall.update_layout(
+    title=f"<b>Ponte Detalhada — {nivel_drilldown_ponte}</b>",
+    xaxis_title="Componentes",
+    yaxis_title="Milhões de Reais (R$ mi)",
     plot_bgcolor="rgba(0,0,0,0)",
     paper_bgcolor="rgba(0,0,0,0)",
-    margin=dict(t=40, b=20, l=20, r=20)
+    showlegend=False,
+    margin=dict(t=40, b=40, l=40, r=40)
 )
-st.plotly_chart(fig_sunburst, use_container_width=True)
+st.plotly_chart(fig_waterfall, use_container_width=True)
 
 # --------------------------------------------------
-# 4. GRÁFICOS DE COLUNAS INTERATIVOS (COMPARATIVO TRIMESTRAL)
+# 4. GRÁFICOS COMPLEMENTARES DE APOIO
 # --------------------------------------------------
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("#### 📊 EBITDA Reportado vs. Recorrente por Trimestre")
+    st.markdown("#### 📊 EBITDA Reportado vs. Recorrente")
     df_ebitda_comp = pd.DataFrame({
         "Período": ["1T25", "2T25", "3T25", "4T25", "1T26"],
-        "EBITDA Reportado": [1680, 1710, 1730, 1620, 1700],
-        "EBITDA Recorrente": [1722, 1735, 1742, 1660, 1742]
+        "EBITDA Reportado": [1580, 1610, 1630, 1520, 1599],
+        "EBITDA Recorrente": [1622, 1635, 1641, 1560, 1641]
     })
     fig_bar = px.bar(
         df_ebitda_comp, x="Período", y=["EBITDA Reportado", "EBITDA Recorrente"],
-        barmode="group", color_discrete_sequence=["#aec7e8", "#1f77b4"],
-        title="<b>Evolução de Geração de Caixa Operacional</b>"
+        barmode="group", color_discrete_sequence=["#aec7e8", "#1f77b4"]
     )
-    fig_bar.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
+    fig_bar.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig_bar, use_container_width=True)
 
 with col2:
@@ -167,13 +210,9 @@ with col2:
     })
     fig_linhas = px.line(
         df_margens, x="Período", y=["Margem EBITDA Recorrente (%)", "Margem Líquida (%)"],
-        markers=True, color_discrete_sequence=["#1f77b4", "#2ca02c"],
-        title="<b>Eficiência de Conversão de Receita</b>"
+        markers=True, color_discrete_sequence=["#1f77b4", "#2ca02c"]
     )
-    fig_linhas.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
+    fig_linhas.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig_linhas, use_container_width=True)
 
 # --------------------------------------------------
@@ -193,7 +232,7 @@ if df_b3_raw is not None and not df_gerencial.empty:
             index=0
         )
     with col_sel2:
-        destacar_oportunidades_tabela = st.checkbox("🎯 Modo Foco / Auditoria", value=destacar_oportunidades)
+        destacar_oportunidades_tabela = st.checkbox("🎯 Modo Foco / Auditoria", value=False)
 
     colunas_atuais = df_gerencial.columns.tolist()
     colunas_anos = [c for c in colunas_atuais if str(c).replace('.0', '').strip().isdigit() and len(str(c).replace('.0', '').strip()) == 4]
