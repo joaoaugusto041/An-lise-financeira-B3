@@ -190,14 +190,7 @@ def escalar(base, total):
     return [(n, v * total / soma, p) for n, v, p in base]
 
 
-def montar_modelo(ano):
-    ref = REF[min(REF, key=lambda a: abs(a - ano))]
-    v, usa_ref = {}, []
-    for k in ref:
-        x = valor_planilha(k, ano)
-        if x is None:
-            x, _ = ref[k], usa_ref.append(k)
-        v[k] = x
+def derivar(v):
     m = dict(v)
     m["receita_liquida"] = m["receita_bruta"] - m["deducoes"]
     m["ebitda_rec"] = m["receita_liquida"] - m["despesas"]
@@ -208,6 +201,18 @@ def montar_modelo(ano):
     m["margem_ebitda"] = m["ebitda_rec"] / m["receita_liquida"] * 100
     m["margem_oper"] = (m["ebitda_rep"] - m["amortizacao"]) / m["receita_liquida"] * 100
     m["margem_liq"] = m["lucro"] / m["receita_liquida"] * 100
+    return m
+
+
+def montar_modelo(ano):
+    ref = REF[min(REF, key=lambda a: abs(a - ano))]
+    v, usa_ref = {}, []
+    for k in ref:
+        x = valor_planilha(k, ano)
+        if x is None:
+            x, _ = ref[k], usa_ref.append(k)
+        v[k] = x
+    m = derivar(v)
     m["det"] = {
         "ded": escalar(DET["ded"], m["deducoes"]),
         "desp": escalar(DET["desp"], m["despesas"]),
@@ -220,6 +225,28 @@ def montar_modelo(ano):
 
 
 MODELOS = {a: montar_modelo(a) for a in ANOS}
+CHAVES_BASE = ["receita_bruta", "deducoes", "despesas", "ajustes", "amortizacao", "financeiro", "ir"]
+
+
+def agregar(anos):
+    """Período = soma dos anos (fluxos); margens são recalculadas sobre os totais."""
+    ms = [MODELOS[a] for a in anos]
+    if len(ms) == 1:
+        return ms[0]
+    m = derivar({k: sum(x[k] for x in ms) for k in CHAVES_BASE})
+    m["det"] = {g: [(n, sum(x["det"][g][i][1] for x in ms), p) for i, (n, _, p) in enumerate(ms[0]["det"][g])]
+                for g in ms[0]["det"]}
+    m["usa_ref"] = sorted({k for x in ms for k in x["usa_ref"]})
+    return m
+
+
+def rotulo_periodo(anos):
+    anos = sorted(anos)
+    if len(anos) == 1:
+        return str(anos[0])
+    if anos[-1] - anos[0] + 1 == len(anos):
+        return f"{anos[0]}–{anos[-1]}"
+    return ", ".join(map(str, anos))
 
 # ======================================================================
 # CABEÇALHO E SELETOR GLOBAL (somente anos)
@@ -227,12 +254,24 @@ MODELOS = {a: montar_modelo(a) for a in ANOS}
 st.title("📊 Dashboard Financeiro B3SA3 — Auditoria de Rentabilidade")
 st.caption("Clique diretamente nas barras e fatias dos gráficos para explorar os detalhes.")
 
-col_a, col_b = st.columns([1, 3])
+col_a, col_b = st.columns([3, 2])
 with col_a:
-    ano = st.selectbox("📅 Ano de análise", ANOS, index=len(ANOS) - 1, format_func=str)
-m = MODELOS[ano]
-ano_ant = ano - 1 if (ano - 1) in MODELOS else None
-mp = MODELOS.get(ano_ant) if ano_ant else None
+    anos_sel = sorted(st.multiselect("📅 Anos de análise (selecione um ou mais)", ANOS, default=[ANOS[-1]],
+                                     format_func=str,
+                                     help="Com vários anos, os valores são somados e as margens recalculadas. "
+                                          "A variação compara com o período imediatamente anterior de mesma duração."))
+if not anos_sel:
+    anos_sel = [ANOS[-1]]
+    st.info(f"Nenhum ano selecionado; exibindo {ANOS[-1]}.")
+rot_per = rotulo_periodo(anos_sel)
+m = agregar(anos_sel)
+n_sel = len(anos_sel)
+mp, ano_ant = None, None
+if anos_sel[-1] - anos_sel[0] + 1 == n_sel:  # variação só para períodos contíguos
+    prev = list(range(anos_sel[0] - n_sel, anos_sel[0]))
+    if all(a in MODELOS for a in prev):
+        mp, ano_ant = agregar(prev), rotulo_periodo(prev)
+anos_graf = anos_sel if n_sel > 1 else ANOS
 
 if m["usa_ref"]:
     st.warning("Parte dos valores é de **referência (ilustrativa)**, pois ainda não foi mapeada para a planilha de RI. "
@@ -283,7 +322,7 @@ with k[3]:
 
 # Caixa de diagnóstico dinâmico
 with st.container(border=True):
-    st.markdown(f"##### 🧭 Diagnóstico de oportunidades — {ano}")
+    st.markdown(f"##### 🧭 Diagnóstico de oportunidades — {rot_per}")
     maior = max(m["det"]["desp"], key=lambda x: x[1])
     alto = [n for n, _, p in m["det"]["desp"] if p == "Alto"]
     st.markdown(f"- **Maior item de custo:** {maior[0]} ({mi(maior[1])}, {br(maior[1] / m['despesas'] * 100)}% das despesas operacionais).")
@@ -372,11 +411,14 @@ fig = go.Figure()
 fig.add_bar(x=x, y=bases, marker_color="rgba(0,0,0,0)", hoverinfo="skip", showlegend=False)
 fig.add_bar(x=x, y=alturas, marker_color=[p["cor"] for p in passos], hovertext=[p["hover"] for p in passos],
             hoverinfo="text", showlegend=False)
-fig.add_scatter(x=x, y=topos, mode="text", text=textos, textposition="top center", hoverinfo="skip", showlegend=False)
+for xi, yi, ti in zip(x, topos, textos):
+    fig.add_annotation(x=xi, y=yi, text=f"<b>{ti}</b>", showarrow=False, yshift=14,
+                       font=dict(size=13, color="#111111"), bgcolor="rgba(255,255,255,0.95)",
+                       bordercolor="rgba(0,0,0,0.25)", borderwidth=1, borderpad=3)
 fig.update_traces(selected=dict(marker=dict(opacity=1)), unselected=dict(marker=dict(opacity=1)), selector=dict(type="bar"))
 fig.update_layout(
     barmode="stack", bargap=0.25, height=520, clickmode="event+select",
-    title=f"<b>Ponte consolidada do resultado — {ano}</b>" +
+    title=f"<b>Ponte consolidada do resultado — {rot_per}</b>" +
           (f" · detalhando <b>{NOMES_DRILL[st.session_state['drill']]}</b>" if st.session_state["drill"] else ""),
     yaxis=dict(title="R$ milhões", range=[0, max(topos) * 1.12]),
 )
@@ -405,15 +447,15 @@ st.markdown("---")
 st.subheader("📈 Análises Complementares de Middle-Line")
 
 abas = st.tabs(["EBITDA", "Estrutura de custos", "Margens", "Pareto de custos", "Mapa hierárquico", "Variação anual"])
-anos_txt = [str(a) for a in ANOS]
+anos_txt = [str(a) for a in anos_graf]
 BASE_CUSTOS = m["det"]["desp"] + [("Amortização do intangível (Cetip)", m["amortizacao"], "Nulo")]
 
 with abas[0]:
     f = go.Figure()
-    f.add_bar(name="EBITDA reportado", x=anos_txt, y=[MODELOS[a]["ebitda_rep"] for a in ANOS], marker_color="#6c8ebf",
-              text=[br(MODELOS[a]["ebitda_rep"], 0) for a in ANOS], textposition="outside")
-    f.add_bar(name="EBITDA recorrente", x=anos_txt, y=[MODELOS[a]["ebitda_rec"] for a in ANOS], marker_color=COR_TOTAL,
-              text=[br(MODELOS[a]["ebitda_rec"], 0) for a in ANOS], textposition="outside")
+    f.add_bar(name="EBITDA reportado", x=anos_txt, y=[MODELOS[a]["ebitda_rep"] for a in anos_graf], marker_color="#6c8ebf",
+              text=[br(MODELOS[a]["ebitda_rep"], 0) for a in anos_graf], textposition="outside")
+    f.add_bar(name="EBITDA recorrente", x=anos_txt, y=[MODELOS[a]["ebitda_rec"] for a in anos_graf], marker_color=COR_TOTAL,
+              text=[br(MODELOS[a]["ebitda_rec"], 0) for a in anos_graf], textposition="outside")
     f.update_layout(barmode="group", title="<b>EBITDA reportado vs. recorrente (R$ milhões)</b>",
                     yaxis_title="R$ milhões", xaxis=dict(type="category"), legend=dict(orientation="h", y=-0.15))
     mostrar_grafico(f)
@@ -427,7 +469,7 @@ with abas[1]:
             marker=dict(colors=[COR_OPORT[p] if p != "Médio" else "#f2b134" for _, _, p in BASE_CUSTOS]),
             texttemplate="%{label}<br>R$ %{value:,.1f} mi<br>%{percent}", textposition="outside",
             hovertemplate="%{label}<br>R$ %{value:,.1f} mi (%{percent})<extra></extra>", sort=False))
-        f.update_layout(title=f"<b>Estrutura de custos — {ano}</b>", showlegend=False, height=480)
+        f.update_layout(title=f"<b>Estrutura de custos — {rot_per}</b>", showlegend=False, height=480)
         ev = mostrar_grafico(f, key="rosca", on_select="rerun", selection_mode="points")
     with c2:
         st.markdown("##### 🔍 Detalhe da fatia")
@@ -445,8 +487,8 @@ with abas[2]:
     f = go.Figure()
     for nome, chave, cor in [("Margem EBITDA recorrente", "margem_ebitda", COR_TOTAL),
                              ("Margem operacional", "margem_oper", "#f2b134"), ("Margem líquida", "margem_liq", COR_GANHO)]:
-        f.add_scatter(name=nome, x=anos_txt, y=[MODELOS[a][chave] for a in ANOS], mode="lines+markers+text",
-                      line=dict(color=cor, width=3), text=[f"{br(MODELOS[a][chave])}%" for a in ANOS],
+        f.add_scatter(name=nome, x=anos_txt, y=[MODELOS[a][chave] for a in anos_graf], mode="lines+markers+text",
+                      line=dict(color=cor, width=3), text=[f"{br(MODELOS[a][chave])}%" for a in anos_graf],
                       textposition="top center")
     f.update_layout(title="<b>Evolução das margens sobre a receita líquida (%)</b>", yaxis=dict(ticksuffix="%"),
                     xaxis=dict(type="category"), legend=dict(orientation="h", y=-0.15), height=460)
@@ -464,7 +506,7 @@ with abas[3]:
               marker_color=[COR_OPORT[p] for _, _, p in ordenado], text=[br(v) for _, v, _ in ordenado], textposition="outside")
     f.add_scatter(x=[n for n, _, _ in ordenado], y=acum, name="% acumulado", yaxis="y2", mode="lines+markers",
                   line=dict(color="#333", width=2))
-    f.update_layout(title=f"<b>Pareto de custos — {ano}: poucos itens concentram a maior parte do gasto</b>",
+    f.update_layout(title=f"<b>Pareto de custos — {rot_per}: poucos itens concentram a maior parte do gasto</b>",
                     yaxis=dict(title="R$ milhões"), yaxis2=dict(title="% acumulado", overlaying="y", side="right",
                     range=[0, 105], ticksuffix="%"), legend=dict(orientation="h", y=-0.3), height=500)
     mostrar_grafico(f)
@@ -488,7 +530,7 @@ with abas[4]:
     f = go.Figure(go.Treemap(labels=rotulos, parents=pais, values=valores, branchvalues="total",
                              texttemplate="%{label}<br>R$ %{value:,.1f} mi", textfont=dict(size=14),
                              hovertemplate="%{label}<br>R$ %{value:,.1f} mi · %{percentRoot:.1%} da receita bruta<extra></extra>"))
-    f.update_layout(title=f"<b>Para onde vai cada real da receita bruta — {ano}</b> (clique para aprofundar)", height=560)
+    f.update_layout(title=f"<b>Para onde vai cada real da receita bruta — {rot_per}</b> (clique para aprofundar)", height=560)
     mostrar_grafico(f)
 
 with abas[5]:
@@ -498,11 +540,11 @@ with abas[5]:
         vals = [var_pct(m[c], mp[c]) for _, c, _ in itens]
         f = go.Figure(go.Bar(x=[n for n, _, _ in itens], y=vals, marker_color=[cor_delta(v, b) for v, (_, _, b) in zip(vals, itens)],
                              text=[f"{br(v)}%" for v in vals], textposition="outside"))
-        f.update_layout(title=f"<b>Variação {ano_ant} → {ano} (%)</b> · verde = favorável, vermelho = desfavorável",
+        f.update_layout(title=f"<b>Variação {ano_ant} → {rot_per} (%)</b> · verde = favorável, vermelho = desfavorável",
                         yaxis=dict(ticksuffix="%"), height=460)
         mostrar_grafico(f)
     else:
-        st.info("Selecione um ano com ano anterior disponível para ver a variação.")
+        st.info("Selecione um período contíguo com período anterior disponível para ver a variação.")
 
 # ======================================================================
 # SEÇÃO 4: DRE GERENCIAL (somente anos)
@@ -515,7 +557,7 @@ if df_num.empty:
 else:
     c1, c2, c3 = st.columns([2, 2, 2])
     with c1:
-        visao = st.radio("Colunas da tabela", ["Todos os anos", f"Apenas {ano}"], horizontal=True)
+        visao = st.radio("Colunas da tabela", ["Todos os anos", "Apenas anos selecionados"], horizontal=True)
     with c2:
         modo_foco = st.checkbox("🎯 Modo Foco / Auditoria", value=False)
     with c3:
@@ -528,8 +570,9 @@ else:
         cols_ano = list(df_num.columns[1:])
         st.warning("Não identifiquei colunas de ano (4 dígitos) na planilha; exibindo todas as colunas lidas. "
                    "Abra o diagnóstico abaixo para ver os rótulos.")
-    if visao != "Todos os anos" and str(ano) in cols_ano:
-        cols_ano = [str(ano)]
+    sel_cols = [c for c in cols_ano if c in [str(a) for a in anos_sel]]
+    if visao != "Todos os anos" and sel_cols:
+        cols_ano = sel_cols
     df_t = df_txt[["Conta / Indicador"] + cols_ano].copy()
 
     if busca:
