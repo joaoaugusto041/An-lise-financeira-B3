@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilização visual limpa
+# Estilização visual limpa e profissional
 st.markdown("""
     <style>
         .metric-card { background-color: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef; }
@@ -45,7 +45,7 @@ if df_b3_raw is not None:
     df_gerencial.columns = nomes_colunas
     df_gerencial = df_gerencial.dropna(subset=["Conta / Indicador"])
     
-    # Formatação inteligente: Apenas valores numéricos financeiros ganham ponto de milhar (anos ficam limpos)
+    # Formatação numérica padrão Brasil (ponto de milhar, anos limpos)
     for c in df_gerencial.columns[1:]:
         def formatar_valor(val, nome_coluna):
             try:
@@ -53,7 +53,6 @@ if df_b3_raw is not None:
                     return ""
                 
                 texto = str(val).strip()
-                # Se for ano (ex: 2023, 2024, 2025) ou não for número puro, não formata com milhar
                 if nome_coluna.isdigit() and len(nome_coluna) == 4:
                     return texto
                 
@@ -90,14 +89,11 @@ if df_b3_raw is not None and not df_gerencial.empty:
 
     with col2:
         st.markdown("#### 🍩 Decomposição da Estrutura de Custos (R$ mi)")
-        
-        # DataFrame atualizado com Valores em R$ Milhões e Percentuais visíveis
         df_custos = pd.DataFrame({
             "Categoria": ["Pessoal e Encargos", "Tecnologia / Dados (TI)", "Serviços de Terceiros", "Depreciação e Amortização", "Outras Despesas"],
             "Valor_Milhoes": [920, 735, 475, 340, 160],
             "Texto_Valor": ["R$ 920 mi", "R$ 735 mi", "R$ 475 mi", "R$ 340 mi", "R$ 160 mi"]
         })
-        
         fig_rosca = px.pie(
             df_custos, names="Categoria", values="Valor_Milhoes", hole=0.5,
             color_discrete_sequence=px.colors.qualitative.Prism,
@@ -108,12 +104,7 @@ if df_b3_raw is not None and not df_gerencial.empty:
             textinfo='percent+label',
             hovertemplate='<b>%{label}</b><br>Valor: %{customdata[0]}<br>Participação: %{percent}<extra></extra>'
         )
-        fig_rosca.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)", 
-            paper_bgcolor="rgba(0,0,0,0)", 
-            margin=dict(t=20, b=20, l=20, r=20), 
-            showlegend=False
-        )
+        fig_rosca.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", margin=dict(t=20, b=20, l=20, r=20), showlegend=False)
         st.plotly_chart(fig_rosca, use_container_width=True)
 
     st.markdown("#### 📊 Ponte de Resultado (Waterfall): Da Receita ao Lucro Líquido")
@@ -130,33 +121,36 @@ if df_b3_raw is not None and not df_gerencial.empty:
     st.plotly_chart(fig_waterfall, use_container_width=True)
 
 # --------------------------------------------------
-# DRE GERENCIAL COMPLETO (B3 - API RI) COM UX ROBUSTA
+# DRE GERENCIAL COMPLETO (B3 - API RI) COM UX SUPERIOR
 # --------------------------------------------------
 st.markdown("---")
 st.subheader("📋 DRE Gerencial Completo — B3 (API RI)")
-st.markdown("🔎 *Dica de Análise:* Utilize os botões abaixo para alternar rapidamente entre a visão anual resumida ou a visão trimestral detalhada. Use o campo de busca para isolar contas críticas de custos ou receitas.")
+st.markdown("🔎 *Análise Detalhada:* Utilize o seletor de visualização abaixo para alternar entre os trimestres ou focar direto nos anos consolidados.")
 
 if df_b3_raw is not None and not df_gerencial.empty:
     
-    # Controles de Experiência do Usuário (UX)
-    col_bt1, col_bt2, col_bt3 = st.columns([1, 1, 2])
-    with col_bt1:
-        ver_apenas_anos = st.checkbox("📅 Exibir Apenas Anos", value=False, help="Filtra a tabela ocultando os trimestres e exibindo apenas os consolidados anuais.")
-    with col_bt2:
-        destacar_oportunidades = st.checkbox("🎯 Modo Foco / Oportunidade", value=False, help="Filtra automaticamente linhas contendo despesas, EBITDA e Lucro para auditoria rápida.")
+    # Seletor de Visão Amigável (Substituindo o checkbox problemático)
+    col_sel1, col_sel2 = st.columns([2, 2])
+    with col_sel1:
+        tipo_visao = st.selectbox(
+            "🎛️ Selecione a Visão Temporal",
+            ["Visão Completa (Trimestres e Anos)", "Apenas Anos Consolidados", "Apenas Trimestres"],
+            index=0
+        )
+    with col_sel2:
+        destacar_oportunidades = st.checkbox("🎯 Modo Foco / Auditoria de Lucratividade", value=False, help="Filtra linhas-chave (Receita, EBITDA, Lucro e Despesas) para exame rápido.")
 
-    # Tratamento seguro e robusto para o filtro de colunas anuais
+    # Processamento refinado das colunas conforme a seleção do usuário
     colunas_atuais = df_gerencial.columns.tolist()
-    if ver_apenas_anos:
-        # Identifica estritamente colunas que possuem exatamente 4 dígitos numéricos (os anos)
-        colunas_anos = [c for c in colunas_atuais if str(c).strip().isdigit() and len(str(c).strip()) == 4]
-        
-        # Garante que a coluna de indicador venha primeiro, seguida apenas dos anos encontrados
-        if colunas_anos:
-            colunas_filtradas = [colunas_atuais[0]] + colunas_anos
-            df_exibicao = df_gerencial[colunas_filtradas].copy()
-        else:
-            df_exibicao = df_gerencial.copy()
+    colunas_anos = [c for c in colunas_atuais if str(c).strip().isdigit() and len(str(c).strip()) == 4]
+    colunas_trim = [c for c in colunas_atuais if c not in colunas_anos and c != "Conta / Indicador"]
+
+    if tipo_visao == "Apenas Anos Consolidados":
+        colunas_filtradas = [colunas_atuais[0]] + colunas_anos
+        df_exibicao = df_gerencial[colunas_filtradas].copy()
+    elif tipo_visao == "Apenas Trimestres":
+        colunas_filtradas = [colunas_atuais[0]] + colunas_trim
+        df_exibicao = df_gerencial[colunas_filtradas].copy()
     else:
         df_exibicao = df_gerencial.copy()
 
@@ -175,12 +169,14 @@ if df_b3_raw is not None and not df_gerencial.empty:
         padrao = "|".join(termos_foco)
         df_exibicao = df_exibicao[df_exibicao["Conta / Indicador"].astype(str).str.contains(padrao, case=False, na=False)]
 
-    # Dicas de Ferramentas / Ajuda contextual interativa
-    with st.expander("💡 Guia de Leitura e Dicas de Ferramentas por Coluna"):
+    # Dicionário explicativo de termos financeiros para ajudar na auditoria
+    with st.expander("💡 Dicionário Financeiro e Guia de Análise de Lucratividade"):
         st.markdown("""
-        - **Conta / Indicador:** Descrição contábil e gerencial da linha. *Dica:* Procure por desvios bruscos entre trimestres para identificar estouros de orçamento em TI ou Pessoal.
-        - **Colunas de Anos (ex: 2024, 2025):** Visão macro de longo prazo. *Ferramenta:* Excelente para análise de tendência histórica.
-        - **Colunas de Trimestres (ex: 1T25, 2T25):** Sazonalidade de volumes negociados na bolsa. *Ferramenta:* Ideal para rastrear o impacto trimestral de custos extraordinários.
+        * **Receita Líquida:** O faturamento total bruto da B3 após deduções de impostos e devoluções. É o ponto de partida para avaliar o crescimento do negócio.
+        * **EBITDA (LAJIDA):** Lucro antes de juros, impostos, depreciação e amortização. Mostra a **geração de caixa operacional pura** da empresa, sem efeitos contábeis ou financeiros.
+        * **Despesas de Pessoal e TI:** Os maiores centros de custo da B3. *Oportunidade de auditoria:* Analise se o crescimento dessas despesas está abaixo do crescimento da receita (alavancagem operacional).
+        * **Amortização de Intangíveis:** Custo contábil decorrente de aquisições passadas (como a Cetip). É um gasto que não consome caixa diretamente no período.
+        * **Lucro Líquido Recorrente:** O "dinheiro no bolso" final dos acionistas após todos os custos, impostos e exclusão de efeitos extraordinários (como processos ou multas pontuais).
         """)
 
     # Exibição da tabela polida
