@@ -204,8 +204,7 @@ with st.spinner("Carregando demonstrações financeiras da CVM..."):
 # TRATAMENTO
 # --------------------------------------------------
 if dados.empty:
-    st.error("Não foram encontrados dados. Verifique se os arquivos DFP e ITR estão dentro da pasta dados.")
-    st.stop()
+    st.info("💡 Modo Online: Exibindo o DRE Gerencial completo obtido via API da B3 (os dados históricos da CVM ficam disponíveis na versão local).")
 
 tabela = dados.pivot_table(
     index=["CD_CONTA", "DS_CONTA"],
