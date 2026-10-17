@@ -1,3 +1,5 @@
+import html
+import textwrap
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -11,8 +13,9 @@ st.set_page_config(page_title="Dashboard Financeiro B3SA3", page_icon="📈", la
 st.markdown("""
 <style>
     .kpi {border-left: 5px solid #1f77b4; padding: 12px 16px; border-radius: 8px;
-          background: rgba(128,128,128,0.08); margin-bottom: 12px; min-height: 108px;}
+          background: rgba(128,128,128,0.08); margin-bottom: 12px; min-height: 150px;}
     .kpi-titulo {font-size: .75rem; opacity: .7; font-weight: 600; text-transform: uppercase;}
+    .kpi-explica {font-size: .74rem; opacity: .65; line-height: 1.25; margin-bottom: 4px;}
     .kpi-valor {font-size: 1.45rem; font-weight: 700; line-height: 1.5;}
     .kpi-delta {font-size: .82rem; font-weight: 600;}
 </style>
@@ -60,6 +63,58 @@ DET = {
 
 
 # ======================================================================
+# EXPLICAÇÕES EM LINGUAGEM SIMPLES
+# ======================================================================
+EXPLICA_KPI = {
+    "Receita bruta": "Tudo o que a B3 faturou com seus serviços (negociação, depósito de ativos, dados etc.), antes de descontar qualquer imposto.",
+    "Receita líquida": "O que sobra da receita bruta depois de descontar os impostos sobre o faturamento (PIS/COFINS e ISS). É a base para calcular as margens.",
+    "EBITDA recorrente": "Lucro gerado pela operação do dia a dia, antes de juros, impostos e amortizações, sem contar eventos pontuais. Aproxima a geração de caixa 'de verdade'.",
+    "Margem EBITDA recorrente": "De cada R$ 100 de receita líquida, quantos reais viram EBITDA. Quanto maior, mais eficiente é a operação.",
+    "Despesas operacionais": "Custos para manter a empresa funcionando: salários, tecnologia, consultorias etc. Não inclui amortização.",
+    "Alavancagem operacional": "Mostra se o lucro operacional cresce mais rápido que a receita. Acima de 1x, o ganho de escala está funcionando.",
+    "Lucro líquido recorrente": "O que sobra no final, depois de todas as despesas e impostos, sem contar eventos pontuais.",
+    "Margem líquida": "De cada R$ 100 de receita líquida, quantos reais viram lucro no final.",
+    "EBITDA reportado": "EBITDA contábil, já descontando os eventos pontuais do período. A diferença para o recorrente é o 'ruído' do ano.",
+}
+EXPLICA_ITENS = {
+    "Receita Bruta": EXPLICA_KPI["Receita bruta"],
+    "Deduções e Impostos": "Impostos sobre o faturamento (PIS/COFINS e ISS) que reduzem a receita bruta.",
+    "Receita Líquida": EXPLICA_KPI["Receita líquida"],
+    "Despesas Operacionais": EXPLICA_KPI["Despesas operacionais"],
+    "EBITDA Recorrente": EXPLICA_KPI["EBITDA recorrente"],
+    "Ajustes Não Recorrentes": "Gastos ou ganhos pontuais (compra de empresas, demissões em massa, processos) que não se repetem todo ano.",
+    "EBITDA Reportado": EXPLICA_KPI["EBITDA reportado"],
+    "Amortização, Financeiro e IR": "O que fica entre o EBITDA e o lucro: desgaste contábil de ativos comprados, juros e imposto de renda.",
+    "Lucro Líquido": "Resultado final do período, o que pertence aos acionistas.",
+    "PIS/COFINS": "Tributos federais cobrados sobre o faturamento.",
+    "ISS municipal": "Imposto municipal cobrado sobre serviços.",
+    "Pessoal fixo": "Salários e encargos da equipe.",
+    "Remuneração variável / bônus": "Bônus pagos conforme o desempenho da empresa.",
+    "Licenças de software e nuvem": "Contratos de sistemas e servidores; costumam ser renegociáveis.",
+    "Processamento e links de dados": "Infraestrutura para processar operações e transmitir dados.",
+    "Consultorias e jurídico": "Serviços externos de consultoria e advocacia.",
+    "Market Maker": "Programas que pagam participantes para dar liquidez, ou seja, facilitar a compra e a venda de ativos.",
+    "Outras despesas": "Demais despesas operacionais de menor valor.",
+    "Assessoria em M&A": "Honorários de fusões e aquisições de empresas.",
+    "Rescisões e reestruturação": "Custos de demissões e reorganizações internas.",
+    "Provisões cíveis e tributárias": "Reservas para possíveis perdas em processos judiciais e fiscais.",
+    "Amortização do intangível (Cetip)": "Desgaste contábil do valor pago na compra da Cetip. É um efeito contábil: não sai dinheiro do caixa.",
+    "Resultado financeiro líquido": "Rendimento das aplicações financeiras menos os juros das dívidas.",
+    "IRPJ": "Imposto de renda da pessoa jurídica, cobrado sobre o lucro.",
+    "CSLL": "Contribuição social cobrada sobre o lucro.",
+    "Benefício fiscal do JCP": "Juros sobre Capital Próprio: forma de remunerar acionistas que reduz o imposto a pagar.",
+}
+EXPLICA = {**EXPLICA_ITENS, **EXPLICA_KPI}
+
+
+def dica(nome):
+    """Texto de explicação para o balão de passar o mouse."""
+    t = EXPLICA.get(nome.replace(" ▸", ""))
+    return "" if not t else "<br><i>" + "<br>".join(textwrap.wrap(t, 48)) + "</i>"
+
+
+
+# ======================================================================
 # FORMATAÇÃO PT-BR
 # ======================================================================
 def br(v, casas=1):
@@ -94,8 +149,10 @@ def mostrar_tabela(df, **kw):
 
 
 def card(titulo, valor, delta_txt="", cor="#1f77b4"):
+    ex = html.escape(EXPLICA.get(titulo, ""), quote=True)
     st.markdown(
-        f"<div class='kpi' style='border-left-color:{cor}'><div class='kpi-titulo'>{titulo}</div>"
+        f"<div class='kpi' style='border-left-color:{cor}' title=\"{ex}\">"
+        f"<div class='kpi-titulo'>{titulo}</div><div class='kpi-explica'>{ex}</div>"
         f"<div class='kpi-valor'>{valor}</div><div class='kpi-delta' style='color:{cor}'>{delta_txt}</div></div>",
         unsafe_allow_html=True)
 
@@ -276,6 +333,18 @@ def rotulo_periodo(anos):
 st.title("📊 Dashboard Financeiro B3SA3 — Auditoria de Rentabilidade")
 st.caption("Clique diretamente nas barras e fatias dos gráficos para explorar os detalhes.")
 
+with st.expander("📖 Entenda os termos deste painel"):
+    st.markdown("**Principais indicadores**")
+    for k_, v_ in EXPLICA_KPI.items():
+        st.markdown(f"- **{k_}:** {v_}")
+    st.markdown("**Componentes detalhados (ao clicar na ponte)**")
+    for k_, v_ in EXPLICA_ITENS.items():
+        if k_ not in ("Receita Bruta", "Receita Líquida", "Despesas Operacionais", "EBITDA Recorrente", "EBITDA Reportado"):
+            st.markdown(f"- **{k_}:** {v_}")
+    st.markdown("**Potencial de oportunidade:** indica o quanto um custo é negociável. "
+                "*Alto* = contratos que podem ser renegociados; *Baixo* = custo estrutural; "
+                "*Nulo* = efeito contábil sem saída de caixa.")
+
 col_a, col_b = st.columns([3, 2])
 with col_a:
     anos_sel = sorted(st.multiselect("📅 Anos de análise (selecione um ou mais)", ANOS, default=[ANOS[-1]],
@@ -368,6 +437,7 @@ with st.container(border=True):
 # ======================================================================
 st.markdown("---")
 st.subheader("🌉 Ponte de Resultado — clique em uma barra marcada com ▸ para expandir")
+st.caption("Passe o mouse sobre cada barra para ver, em palavras simples, o que ela significa.")
 
 st.session_state.setdefault("drill", None)
 st.session_state.setdefault("ver", 0)
@@ -382,7 +452,7 @@ def montar_passos(m, expandido):
     passos = []
 
     def total(rot, val):
-        passos.append(dict(rotulo=rot, valor=val, tipo="total", cor=COR_TOTAL, hover=f"{rot}<br>{mi(val)}"))
+        passos.append(dict(rotulo=rot, valor=val, tipo="total", cor=COR_TOTAL, hover=f"<b>{rot}</b><br>{mi(val)}" + dica(rot)))
 
     def queda(chave, val):
         if expandido == chave:
@@ -393,11 +463,11 @@ def montar_passos(m, expandido):
                 passos.append(dict(
                     rotulo=nome, valor=-v, tipo="filho", cor=cor,
                     hover=f"{nome}<br>{mi(abs(v))} ({br(abs(v) / pai * 100)}% de {NOMES_DRILL[chave]})"
-                          f"<br>Potencial de oportunidade: {pot}"))
+                          f"<br>Potencial de oportunidade: {pot}" + dica(nome)))
         else:
             rot = NOMES_DRILL[chave] + " ▸"
             passos.append(dict(rotulo=rot, valor=-val, tipo="queda", cor=COR_QUEDA, chave=chave,
-                               hover=f"{NOMES_DRILL[chave]}<br>{mi(val)}<br>Clique para detalhar"))
+                               hover=f"<b>{NOMES_DRILL[chave]}</b><br>{mi(val)}<br>Clique para detalhar" + dica(NOMES_DRILL[chave])))
 
     total("Receita Bruta", m["receita_bruta"])
     queda("ded", m["deducoes"])
@@ -616,17 +686,3 @@ else:
 # ======================================================================
 # GLOSSÁRIO
 # ======================================================================
-with st.expander("📖 Glossário analítico"):
-    st.markdown("""
-**EBITDA recorrente vs. reportado:** o recorrente expurga eventos pontuais (assessorias de M&A, rescisões, provisões),
-mostrando a capacidade operacional real. A distância entre os dois indica o "ruído" do período.
-
-**Amortização de intangíveis (Cetip):** efeito contábil da aquisição, sem desembolso de caixa. Reduz o lucro, mas não a geração de caixa.
-
-**Benefício fiscal do JCP:** os Juros sobre Capital Próprio são dedutíveis de IRPJ/CSLL e reduzem a alíquota efetiva da companhia.
-
-**Alavancagem operacional:** variação do EBITDA dividida pela variação da receita. Acima de 1x, a receita cresce mais rápido que o custo fixo (TI e pessoal).
-
-**Potencial de oportunidade:** classificação qualitativa do quanto cada custo é negociável (contratos de software e consultorias)
-ou estrutural (pessoal fixo, efeitos contábeis).
-""")
