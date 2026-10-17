@@ -2,40 +2,26 @@ import io
 import requests
 import pandas as pd
 import streamlit as st
-from bs4 import BeautifulSoup
+
+# Link direto permanente da última planilha interativa de resultados da B3 (Aba IS (New Seg))
+URL_B3_DIRETO = "https://api.mziq.com/mzfilemanager/v2/d/5fd7b7d8-54a1-472d-8426-eb896ad8a3c4/b49b75fa-208b-11af-d633-b02f2465f058?origin=2"
 
 @st.cache_data(show_spinner=False)
 def carregar_dados_b3():
     try:
-        # Acessa a página de resultados da B3 para capturar o link mais recente da planilha de DRE/Resultados
-        url_ri = "https://ri.b3.com.br/informacoes-financeiras/planilhas-interativas/"
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://ri.b3.com.br/"
         }
         
-        response = requests.get(url_ri, headers=headers, timeout=30)
+        # Tenta o download direto otimizado com cabeçalhos de navegador
+        response = requests.get(URL_B3_DIRETO, headers=headers, timeout=60)
         response.raise_for_status()
         
-        soup = BeautifulSoup(response.text, "html.parser")
-        
-        # Procura pelo link do Excel (.xlsx) na página de RI
-        link_excel = None
-        for a in soup.find_all("a", href=True):
-            if ".xlsx" in a["href"] or "mzfilemanager" in a["href"]:
-                link_excel = a["href"]
-                break
-                
-        if not link_excel:
-            return None
-            
-        # Faz o download do arquivo encontrado no site
-        res_excel = requests.get(link_excel, headers=headers, timeout=60)
-        res_excel.raise_for_status()
-        
-        excel_file = pd.ExcelFile(io.BytesIO(res_excel.content))
+        excel_file = pd.ExcelFile(io.BytesIO(response.content))
         df = pd.read_excel(excel_file, sheet_name="IS (New Seg)", header=None)
         return df
         
     except Exception as e:
-        print(f"Erro ao buscar dados no site da B3: {e}")
+        print(f"Erro ao carregar dados da B3: {e}")
         return None
