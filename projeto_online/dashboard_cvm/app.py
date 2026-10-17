@@ -11,14 +11,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilização visual limpa e profissional
-st.markdown("""
-    <style>
-        .metric-card { background-color: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef; }
-        .stButton button { width: 100%; border-radius: 6px; }
-    </style>
-""", unsafe_allow_html=True)
-
 st.title("📊 Dashboard Financeiro B3SA3")
 st.markdown("Análise financeira integrada: Eficiência Operacional, Custos e DRE Gerencial Detalhado.")
 
@@ -38,6 +30,9 @@ if df_b3_raw is not None:
         
         rotulo = val_trim if val_trim != "nan" and val_trim != "" else val_ano
         if rotulo != "nan" and rotulo != "":
+            # Limpa '.0' caso venha como float do excel
+            if rotulo.endswith('.0'):
+                rotulo = rotulo[:-2]
             colunas_validas.append(col)
             nomes_colunas.append(rotulo)
 
@@ -45,7 +40,7 @@ if df_b3_raw is not None:
     df_gerencial.columns = nomes_colunas
     df_gerencial = df_gerencial.dropna(subset=["Conta / Indicador"])
     
-    # Formatação numérica padrão Brasil (ponto de milhar, anos limpos)
+    # Formatação numérica padrão Brasil
     for c in df_gerencial.columns[1:]:
         def formatar_valor(val, nome_coluna):
             try:
@@ -53,8 +48,10 @@ if df_b3_raw is not None:
                     return ""
                 
                 texto = str(val).strip()
-                if nome_coluna.isdigit() and len(nome_coluna) == 4:
-                    return texto
+                # Se for ano (ex: 2023, 2024, 2025), exibe limpo sem ponto de milhar
+                nome_limpo = str(nome_coluna).replace('.0', '').strip()
+                if nome_limpo.isdigit() and len(nome_limpo) == 4:
+                    return texto.replace('.0', '')
                 
                 num = float(texto)
                 return f"{num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -121,7 +118,7 @@ if df_b3_raw is not None and not df_gerencial.empty:
     st.plotly_chart(fig_waterfall, use_container_width=True)
 
 # --------------------------------------------------
-# DRE GERENCIAL COMPLETO (B3 - API RI) COM UX SUPERIOR
+# DRE GERENCIAL COMPLETO (B3 - API RI)
 # --------------------------------------------------
 st.markdown("---")
 st.subheader("📋 DRE Gerencial Completo — B3 (API RI)")
@@ -129,7 +126,6 @@ st.markdown("🔎 *Análise Detalhada:* Utilize o seletor de visualização abai
 
 if df_b3_raw is not None and not df_gerencial.empty:
     
-    # Seletor de Visão Amigável (Substituindo o checkbox problemático)
     col_sel1, col_sel2 = st.columns([2, 2])
     with col_sel1:
         tipo_visao = st.selectbox(
@@ -138,11 +134,11 @@ if df_b3_raw is not None and not df_gerencial.empty:
             index=0
         )
     with col_sel2:
-        destacar_oportunidades = st.checkbox("🎯 Modo Foco / Auditoria de Lucratividade", value=False, help="Filtra linhas-chave (Receita, EBITDA, Lucro e Despesas) para exame rápido.")
+        destacar_oportunidades = st.checkbox("🎯 Modo Foco / Auditoria de Lucratividade", value=False, help="Filtra linhas-chave para exame rápido.")
 
-    # Processamento refinado das colunas conforme a seleção do usuário
+    # Filtro robusto de colunas ajustado para reconhecer os anos limpos
     colunas_atuais = df_gerencial.columns.tolist()
-    colunas_anos = [c for c in colunas_atuais if str(c).strip().isdigit() and len(str(c).strip()) == 4]
+    colunas_anos = [c for c in colunas_atuais if str(c).replace('.0', '').strip().isdigit() and len(str(c).replace('.0', '').strip()) == 4]
     colunas_trim = [c for c in colunas_atuais if c not in colunas_anos and c != "Conta / Indicador"]
 
     if tipo_visao == "Apenas Anos Consolidados":
@@ -154,7 +150,6 @@ if df_b3_raw is not None and not df_gerencial.empty:
     else:
         df_exibicao = df_gerencial.copy()
 
-    # Campo de busca rápida
     busca_b3 = st.text_input(
         "🔍 Pesquisar conta ou indicador específico",
         placeholder="Ex.: EBITDA, Despesas de Pessoal, Lucro líquido, Derivativos...",
@@ -169,17 +164,15 @@ if df_b3_raw is not None and not df_gerencial.empty:
         padrao = "|".join(termos_foco)
         df_exibicao = df_exibicao[df_exibicao["Conta / Indicador"].astype(str).str.contains(padrao, case=False, na=False)]
 
-    # Dicionário explicativo de termos financeiros para ajudar na auditoria
     with st.expander("💡 Dicionário Financeiro e Guia de Análise de Lucratividade"):
         st.markdown("""
-        * **Receita Líquida:** O faturamento total bruto da B3 após deduções de impostos e devoluções. É o ponto de partida para avaliar o crescimento do negócio.
-        * **EBITDA (LAJIDA):** Lucro antes de juros, impostos, depreciação e amortização. Mostra a **geração de caixa operacional pura** da empresa, sem efeitos contábeis ou financeiros.
-        * **Despesas de Pessoal e TI:** Os maiores centros de custo da B3. *Oportunidade de auditoria:* Analise se o crescimento dessas despesas está abaixo do crescimento da receita (alavancagem operacional).
-        * **Amortização de Intangíveis:** Custo contábil decorrente de aquisições passadas (como a Cetip). É um gasto que não consome caixa diretamente no período.
-        * **Lucro Líquido Recorrente:** O "dinheiro no bolso" final dos acionistas após todos os custos, impostos e exclusão de efeitos extraordinários (como processos ou multas pontuais).
+        * **Receita Líquida:** O faturamento total bruto da B3 após deduções. Ponto de partida para o crescimento.
+        * **EBITDA (LAJIDA):** Geração de caixa operacional pura da empresa, sem efeitos financeiros ou contábeis.
+        * **Despesas de Pessoal e TI:** Os maiores centros de custo. Oportunidade: Avaliar alavancagem operacional.
+        * **Amortização de Intangíveis:** Custo contábil de aquisições passadas (ex: Cetip) sem impacto direto de caixa.
+        * **Lucro Líquido Recorrente:** O resultado final líquido ajustado entregue aos acionistas.
         """)
 
-    # Exibição da tabela polida
     st.dataframe(
         df_exibicao,
         use_container_width=True,
@@ -187,7 +180,6 @@ if df_b3_raw is not None and not df_gerencial.empty:
         height=520,
     )
 
-    # Botão de Exportação
     csv_b3 = df_exibicao.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
     st.download_button(
         "⬇️ Exportar Tabela Ajustada para CSV / Excel",
