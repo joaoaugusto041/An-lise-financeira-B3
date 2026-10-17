@@ -186,7 +186,7 @@ def valor_planilha(chave, ano):
     linha = df_num[df_num["Conta / Indicador"] == conta]
     if linha.empty or pd.isna(linha.iloc[0][str(ano)]):
         return None
-    return abs(float(linha.iloc[0][str(ano)])) * UNIDADES[st.session_state.get("unidade_planilha", "R$ milhões")]
+    return abs(float(linha.iloc[0][str(ano)])) * UNIDADES[st.session_state.get("unidade_v2", "R$ milhões")]
 
 
 def escalar(base, total):
@@ -240,7 +240,7 @@ with st.sidebar:
         _ref_col = str(max(anos_com_dado)) if anos_com_dado else None
         _maior = df_num[_ref_col].abs().max() if _ref_col else 0
         _idx_un = 2 if _maior > 1e8 else 1 if _maior > 1e5 else 0  # R$ / R$ mil / R$ milhões
-        st.selectbox("Unidade da planilha (detectada automaticamente)", list(UNIDADES), index=_idx_un, key="unidade_planilha")
+        st.selectbox("Unidade da planilha (detectada automaticamente)", list(UNIDADES), index=_idx_un, key="unidade_v2")
         contas = list(dict.fromkeys(df_num["Conta / Indicador"]))
         for chave, nome in NOMES_ITENS.items():
             achada = next((i for i, c in enumerate(contas) if _re.search(SUGESTAO[chave], c, _re.I)), None)
@@ -428,7 +428,11 @@ for p in passos:
     topos.append(base + alt)
 
 x = [p["rotulo"] for p in passos]
-textos = [(br(p["valor"]) if p["tipo"] == "total" else ("+" if p["valor"] > 0 else "−") + br(abs(p["valor"]))) for p in passos]
+def curto(v):
+    return f"{br(v / 1000, 2)} bi" if abs(v) >= 1000 else f"{br(v, 1)} mi"
+
+
+textos = [(curto(p["valor"]) if p["tipo"] == "total" else ("+" if p["valor"] > 0 else "−") + curto(abs(p["valor"]))) for p in passos]
 
 fig = go.Figure()
 fig.add_bar(x=x, y=bases, marker_color="rgba(0,0,0,0)", hoverinfo="skip", showlegend=False)
@@ -443,7 +447,7 @@ fig.update_layout(
     barmode="stack", bargap=0.25, height=520, clickmode="event+select",
     title=f"<b>Ponte consolidada do resultado — {rot_per}</b>" +
           (f" · detalhando <b>{NOMES_DRILL[st.session_state['drill']]}</b>" if st.session_state["drill"] else ""),
-    yaxis=dict(title="R$ milhões", range=[0, max(topos) * 1.12]),
+    yaxis=dict(title="R$ milhões", range=[0, max(topos) * 1.15]),
 )
 
 if st.session_state["drill"]:
