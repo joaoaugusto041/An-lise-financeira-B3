@@ -6,7 +6,7 @@ from loader_b3 import carregar_dados_b3
 # ======================================================================
 # CONFIGURAÇÃO
 # ======================================================================
-st.set_page_config(page_title="Dashboard Financeiro B3SA3", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Dashboard Financeiro B3SA3", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
@@ -22,22 +22,20 @@ COR_TOTAL, COR_QUEDA, COR_GANHO = "#1f77b4", "#d62728", "#2ca02c"
 COR_OPORT = {"Alto": "#e4572e", "Médio": "#f2b134", "Baixo": "#9aa5b1", "Nulo": "#6c8ebf"}
 ALIQUOTA_NOMINAL = 0.34  # IRPJ + CSLL, usada para estimar o efeito fiscal dos ajustes
 
-# ----------------------------------------------------------------------
-# MAPEAMENTO PLANILHA -> MODELO
-# Informe, para cada item, um trecho (regex) do nome da conta na planilha de RI.
-# Itens sem mapeamento usam valores de REFERÊNCIA (ilustrativos).
-# Exemplo: "receita_bruta": r"^receita bruta"
-# ----------------------------------------------------------------------
-MAPEAMENTO_CONTAS = {
-    # "receita_bruta": r"",
-    # "deducoes": r"",
-    # "despesas": r"",
-    # "ajustes": r"",
-    # "amortizacao": r"",
-    # "financeiro": r"",
-    # "ir": r"",
+NOMES_ITENS = {
+    "receita_bruta": "Receita bruta", "deducoes": "Deduções e impostos sobre a receita",
+    "despesas": "Despesas operacionais (sem amortização)", "ajustes": "Ajustes não recorrentes",
+    "amortizacao": "Amortização / depreciação", "financeiro": "Resultado financeiro (valor líquido)",
+    "ir": "Imposto de renda e contribuição social",
 }
-ESCALA_PLANILHA_PARA_MI = 1.0  # use 0.001 se a planilha estiver em R$ mil
+SUGESTAO = {  # sugestão automática de conta da planilha (confirmável na barra lateral)
+    "receita_bruta": r"^receita (bruta|total)", "deducoes": r"dedu|impostos sobre",
+    "despesas": r"^despesas( operacionais| totais)?$", "ajustes": r"n[aã]o recorrent|ajuste",
+    "amortizacao": r"deprecia|amortiza", "financeiro": r"resultado financeiro",
+    "ir": r"imposto de renda|irpj",
+}
+UNIDADES = {"R$ milhões": 1.0, "R$ mil": 0.001, "R$": 1e-6}
+SEM_CONTA = "(usar valor de exemplo)"
 
 ANOS_REF = [2022, 2023, 2024, 2025, 2026]
 REF = {  # R$ milhões (ilustrativo)
@@ -176,13 +174,13 @@ ANOS = sorted(set(ANOS_REF) | set(anos_planilha))
 
 
 def valor_planilha(chave, ano):
-    rx = MAPEAMENTO_CONTAS.get(chave)
-    if not rx or df_num.empty or str(ano) not in df_num.columns:
+    conta = st.session_state.get(f"map_{chave}", SEM_CONTA)
+    if conta == SEM_CONTA or df_num.empty or str(ano) not in df_num.columns:
         return None
-    linha = df_num[df_num["Conta / Indicador"].str.contains(rx, case=False, regex=True, na=False)]
+    linha = df_num[df_num["Conta / Indicador"] == conta]
     if linha.empty or pd.isna(linha.iloc[0][str(ano)]):
         return None
-    return abs(float(linha.iloc[0][str(ano)])) * ESCALA_PLANILHA_PARA_MI
+    return abs(float(linha.iloc[0][str(ano)])) * UNIDADES[st.session_state.get("unidade_planilha", "R$ milhões")]
 
 
 def escalar(base, total):
@@ -223,6 +221,21 @@ def montar_modelo(ano):
     m["usa_ref"] = usa_ref
     return m
 
+
+import re as _re
+
+with st.sidebar:
+    st.header("⚙️ Conectar à planilha")
+    if df_num.empty:
+        st.caption("Planilha indisponível no momento.")
+    else:
+        st.caption("Escolha qual conta da planilha da B3 corresponde a cada item do dashboard. "
+                   "Confira as sugestões automáticas.")
+        st.selectbox("Unidade da planilha", list(UNIDADES), key="unidade_planilha")
+        contas = list(dict.fromkeys(df_num["Conta / Indicador"]))
+        for chave, nome in NOMES_ITENS.items():
+            achada = next((i for i, c in enumerate(contas) if _re.search(SUGESTAO[chave], c, _re.I)), None)
+            st.selectbox(nome, [SEM_CONTA] + contas, index=(achada + 1) if achada is not None else 0, key=f"map_{chave}")
 
 MODELOS = {a: montar_modelo(a) for a in ANOS}
 CHAVES_BASE = ["receita_bruta", "deducoes", "despesas", "ajustes", "amortizacao", "financeiro", "ir"]
@@ -274,8 +287,9 @@ if anos_sel[-1] - anos_sel[0] + 1 == n_sel:  # variação só para períodos con
 anos_graf = anos_sel if n_sel > 1 else ANOS
 
 if m["usa_ref"]:
-    st.warning("Parte dos valores é de **referência (ilustrativa)**, pois ainda não foi mapeada para a planilha de RI. "
-               "Preencha `MAPEAMENTO_CONTAS` no topo do arquivo. Itens em referência: " + ", ".join(m["usa_ref"]) + ".")
+    itens = ", ".join(NOMES_ITENS[k].lower() for k in NOMES_ITENS if k in m["usa_ref"])
+    st.info(f"Alguns números ({itens}) ainda não estão ligados à sua planilha e usam valores de exemplo. "
+            "Para ligá-los, abra a barra lateral (seta no canto superior esquerdo) e escolha a conta correspondente de cada item.")
 
 # ======================================================================
 # SEÇÃO 1: RADAR DE ALERTAS E KPIs
@@ -568,8 +582,7 @@ else:
         cols_ano = cols_anuais
     else:
         cols_ano = list(df_num.columns[1:])
-        st.warning("Não identifiquei colunas de ano (4 dígitos) na planilha; exibindo todas as colunas lidas. "
-                   "Abra o diagnóstico abaixo para ver os rótulos.")
+        st.caption("Colunas de ano não identificadas; exibindo todos os períodos da planilha.")
     sel_cols = [c for c in cols_ano if c in [str(a) for a in anos_sel]]
     if visao != "Todos os anos" and sel_cols:
         cols_ano = sel_cols
@@ -581,21 +594,6 @@ else:
         termos = "EBITDA|Despesa|Lucro|Receita L|Imposto|JCP|Pessoal|Tecnologia|Intang|Amortiza|Financeiro"
         df_t = df_t[df_t["Conta / Indicador"].str.contains(termos, case=False, na=False)]
 
-    st.caption("Versão do app: v5 · se esta linha não aparecer, o Streamlit ainda está rodando o arquivo antigo.")
-    with st.expander("🛠️ Diagnóstico da leitura da planilha", expanded=not cols_ano):
-        _raw = carregar_dados_b3()
-        if _raw is None:
-            st.write("`carregar_dados_b3()` retornou `None`.")
-        else:
-            st.write(f"Dimensão bruta: {_raw.shape[0]} linhas × {_raw.shape[1]} colunas. "
-                     f"Colunas lidas: {list(df_num.columns[1:])}")
-            st.dataframe(_raw.iloc[:6, :16].astype(str))
-    if not cols_ano:
-        st.error("Nenhuma coluna de ano foi identificada na planilha. Veja abaixo as primeiras linhas brutas "
-                 "e me envie uma captura para ajustar a leitura.")
-        _raw = carregar_dados_b3()
-        if _raw is not None:
-            st.dataframe(_raw.iloc[:6, :14].astype(str))
     st.caption(f"{len(df_t)} contas · {len(cols_ano)} período(s) anual(is): {', '.join(cols_ano)}")
     mostrar_tabela(df_t, height=520)
 
