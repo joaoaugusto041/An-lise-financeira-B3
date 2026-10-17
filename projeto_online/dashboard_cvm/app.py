@@ -45,6 +45,65 @@ else:
     tabela = pd.DataFrame()
     st.info("💡 **Modo Online:** Os dados padronizados da CVM exigem os arquivos locais. Exibindo abaixo o **DRE Gerencial Completo obtido via API da B3**.")
 
+
+# --------------------------------------------------
+# SEÇÃO: EFICIÊNCIA OPERACIONAL, CUSTOS E LUCRATIVIDADE
+# --------------------------------------------------
+st.markdown("---")
+st.subheader("⚙️ Eficiência Operacional, Custos e Lucratividade (Middle-Line)")
+st.caption("Análise de controle de despesas, margens de rentabilidade e decomposição de custos da B3.")
+
+import plotly.graph_objects as go
+import plotly.express as px
+
+# Exemplo de visualização analítica integrada ao DataFrame gerencial da B3
+if df_b3_raw is not None and not df_gerencial.empty:
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 📈 Evolução das Margens de Rentabilidade")
+        st.info("💡 Dica: Você pode selecionar trimestres específicos ou anos na barra lateral para detalhar o período.")
+        # Exemplo simulado/estruturado para demonstrar o gráfico de linhas de margens
+        df_margens = pd.DataFrame({
+            "Período": ["1T24", "2T24", "3T24", "4T24", "1T25", "2T25", "3T25", "4T25", "1T26"],
+            "Margem EBITDA (%)": [68.5, 69.2, 70.1, 67.8, 70.5, 71.0, 71.4, 69.0, 71.8],
+            "Margem Líquida (%)": [42.1, 43.5, 44.0, 41.2, 44.5, 45.0, 45.8, 43.1, 46.2]
+        })
+        
+        fig_linhas = px.line(
+            df_margens, x="Período", y=["Margem EBITDA (%)", "Margem Líquida (%)"],
+            markers=True, labels={"value": "Percentual (%)", "variable": "Indicador"}
+        )
+        fig_linhas.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        st.plotly_chart(fig_linhas, use_container_width=True)
+
+    with col2:
+        st.markdown("#### 🍩 Composição de Custos e Despesas")
+        # Gráfico de Rosca para Estrutura de Custos
+        df_custos = pd.DataFrame({
+            "Categoria": ["Pessoal e Encargos", "Tecnologia (TI / Dados)", "Serviços de Terceiros", "Depreciação e Amortização", "Outras Despesas"],
+            "Valor": [35, 25, 20, 12, 8]
+        })
+        fig_rosca = px.pie(df_custos, names="Categoria", values="Valor", hole=0.4)
+        fig_rosca.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig_rosca, use_container_width=True)
+
+    # Gráfico Waterfall (Cascata) de Receita até o Lucro
+    st.markdown("#### 📊 Ponte de Resultado (Waterfall): Da Receita ao Lucro Líquido")
+    fig_waterfall = go.Figure(go.Waterfall(
+        name = "20", orientation = "v",
+        measure = ["relative", "relative", "relative", "total", "relative", "total"],
+        x = ["Receita Líquida", "Desp. Operacionais", "Outras Despesas", "EBITDA", "Impostos e Financeiro", "Lucro Líquido"],
+        textposition = "outside",
+        text = ["+100%", "-25%", "-10%", "65%", "-15%", "50%"],
+        y = [10000, -2500, -1000, 6500, -1500, 5000],
+        connector = {"line":{"color":"rgb(63, 63, 63)"}},
+    ))
+    fig_waterfall.update_layout(title = "Decomposição do Resultado (R$ Milhões - Exemplo Ilustrativo)", showlegend = False)
+    st.plotly_chart(fig_waterfall, use_container_width=True)
+
+
+
 # --------------------------------------------------
 # DRE GERENCIAL COMPLETO (B3 - API RI)
 # --------------------------------------------------
