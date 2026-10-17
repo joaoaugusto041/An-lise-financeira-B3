@@ -204,7 +204,24 @@ with st.spinner("Carregando demonstrações financeiras da CVM..."):
 # TRATAMENTO
 # --------------------------------------------------
 if dados.empty:
-    st.info("💡 Modo Online: Exibindo o DRE Gerencial completo obtido via API da B3 (os dados históricos da CVM ficam disponíveis na versão local).")
+    # Cria uma tabela vazia de DRE CVM para o app não quebrar online
+    tabela = pd.DataFrame(columns=["CD_CONTA", "DS_CONTA"] + PERIODOS)
+    st.info("💡 **Modo Online:** Os dados padronizados da CVM exigem os arquivos locais. Exibindo abaixo o **DRE Gerencial Completo obtido via API da B3**.")
+else:
+    tabela = dados.pivot_table(
+        index=["CD_CONTA", "DS_CONTA"],
+        columns="Periodo",
+        values="Valor",
+        aggfunc="first",
+    ).reset_index()
+
+    for periodo in PERIODOS:
+        if periodo not in tabela.columns:
+            tabela[periodo] = float("nan")
+
+    tabela = tabela[["CD_CONTA", "DS_CONTA"] + PERIODOS].copy()
+    tabela.columns.name = None
+
 
 tabela = dados.pivot_table(
     index=["CD_CONTA", "DS_CONTA"],
