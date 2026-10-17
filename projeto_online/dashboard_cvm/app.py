@@ -115,33 +115,63 @@ def txt_delta(delta, ano_ant, unidade="%"):
 # ======================================================================
 # DADOS DA PLANILHA DE RI (somente anos consolidados)
 # ======================================================================
+def para_numero(v):
+    """Converte número ou texto (inclusive padrão pt-BR) em float; NaN se não for numérico."""
+    nan = float("nan")
+    if v is None:
+        return nan
+    if isinstance(v, (int, float)):
+        return float(v)
+    t = str(v).strip().replace("R$", "").replace("%", "").strip()
+    if t in ("", "nan", "None", "-", "—"):
+        return nan
+    neg = t.startswith("(") and t.endswith(")")
+    t = t.strip("()")
+    if "," in t:
+        t = t.replace(".", "").replace(",", ".")
+    try:
+        n = float(t)
+    except ValueError:
+        return nan
+    return -n if neg else n
+
+
 @st.cache_data(show_spinner="Carregando dados da B3...")
 def preparar_planilha():
     raw = carregar_dados_b3()
     if raw is None:
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
     cols, nomes = [0], ["Conta / Indicador"]
     for c in range(2, raw.shape[1]):
         ano = str(raw.iloc[1, c]).strip()
         trim = str(raw.iloc[2, c]).strip()
-        if trim not in ("", "nan"):
-            continue  # ignora trimestres
-        ano = ano[:-2] if ano.endswith(".0") else ano
-        if ano.isdigit() and len(ano) == 4:
+        rotulo = trim if trim not in ("", "nan") else ano  # mesma lógica do código original
+        rotulo = rotulo[:-2] if rotulo.endswith(".0") else rotulo
+        if rotulo not in ("", "nan", "None"):
             cols.append(c)
-            nomes.append(ano)
+            nomes.append(rotulo)
     df = raw.iloc[3:, cols].copy()
     df.columns = nomes
     df = df.loc[:, ~df.columns.duplicated()]
     df = df.dropna(subset=["Conta / Indicador"])
     df["Conta / Indicador"] = df["Conta / Indicador"].astype(str).str.strip()
+    df = df.reset_index(drop=True)
+
+    df_n, df_t = df.copy(), df.copy()
     for c in df.columns[1:]:
-        df[c] = pd.to_numeric(df[c], errors="coerce")
-    return df.reset_index(drop=True)
+        nums = df[c].map(para_numero)
+        df_n[c] = nums
+        df_t[c] = [
+            br(n, 2) if pd.notna(n)
+            else ("" if str(o).strip().lower() in ("nan", "none", "") else str(o))
+            for n, o in zip(nums, df[c])
+        ]
+    return df_n, df_t
 
 
-df_num = preparar_planilha()
-anos_planilha = [int(c) for c in df_num.columns[1:]] if not df_num.empty else []
+df_num, df_txt = preparar_planilha()
+eh_ano = lambda c: str(c).isdigit() and len(str(c)) == 4
+anos_planilha = [int(c) for c in df_num.columns[1:] if eh_ano(c)] if not df_num.empty else []
 ANOS = sorted(set(ANOS_REF) | set(anos_planilha))
 
 
@@ -491,10 +521,16 @@ else:
     with c3:
         busca = st.text_input("🔍 Pesquisar conta", placeholder="Ex.: EBITDA, Pessoal, JCP, TI...")
 
-    cols_ano = [c for c in df_num.columns[1:]]
+    cols_anuais = [c for c in df_num.columns[1:] if eh_ano(c)]
+    if cols_anuais:
+        cols_ano = cols_anuais
+    else:
+        cols_ano = list(df_num.columns[1:])
+        st.warning("Não identifiquei colunas de ano (4 dígitos) na planilha; exibindo todas as colunas lidas. "
+                   "Abra o diagnóstico abaixo para ver os rótulos.")
     if visao != "Todos os anos" and str(ano) in cols_ano:
         cols_ano = [str(ano)]
-    df_t = df_num[["Conta / Indicador"] + cols_ano].copy()
+    df_t = df_txt[["Conta / Indicador"] + cols_ano].copy()
 
     if busca:
         df_t = df_t[df_t["Conta / Indicador"].str.contains(busca, case=False, regex=False, na=False)]
@@ -502,10 +538,23 @@ else:
         termos = "EBITDA|Despesa|Lucro|Receita L|Imposto|JCP|Pessoal|Tecnologia|Intang|Amortiza|Financeiro"
         df_t = df_t[df_t["Conta / Indicador"].str.contains(termos, case=False, na=False)]
 
-    estilo = df_t.style.format(lambda v: "" if pd.isna(v) else br(v, 2), subset=cols_ano)
-    cor_neg = lambda v: "color: #d62728" if isinstance(v, (int, float)) and v < 0 else ""
-    estilo = (estilo.map if hasattr(estilo, "map") else estilo.applymap)(cor_neg, subset=cols_ano)
-    mostrar_tabela(estilo, height=520)
+    st.caption("Versão do app: v5 · se esta linha não aparecer, o Streamlit ainda está rodando o arquivo antigo.")
+    with st.expander("🛠️ Diagnóstico da leitura da planilha", expanded=not cols_ano):
+        _raw = carregar_dados_b3()
+        if _raw is None:
+            st.write("`carregar_dados_b3()` retornou `None`.")
+        else:
+            st.write(f"Dimensão bruta: {_raw.shape[0]} linhas × {_raw.shape[1]} colunas. "
+                     f"Colunas lidas: {list(df_num.columns[1:])}")
+            st.dataframe(_raw.iloc[:6, :16].astype(str))
+    if not cols_ano:
+        st.error("Nenhuma coluna de ano foi identificada na planilha. Veja abaixo as primeiras linhas brutas "
+                 "e me envie uma captura para ajustar a leitura.")
+        _raw = carregar_dados_b3()
+        if _raw is not None:
+            st.dataframe(_raw.iloc[:6, :14].astype(str))
+    st.caption(f"{len(df_t)} contas · {len(cols_ano)} período(s) anual(is): {', '.join(cols_ano)}")
+    mostrar_tabela(df_t, height=520)
 
     csv = df_t.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
     st.download_button("⬇️ Exportar tabela para CSV / Excel", data=csv, file_name="B3SA3_DRE_Gerencial.csv", mime="text/csv")
