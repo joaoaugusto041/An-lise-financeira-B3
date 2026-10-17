@@ -68,7 +68,7 @@ def br(v, casas=1):
 
 def mi(v, casas=1):
     if abs(v) >= 1000:
-        return f"R$ {br(v / 1000, 2)} bi"
+        return f"R$ {br(v / 1000, 3)} bi"
     return f"R$ {br(v, casas)} mi"
 
 
@@ -429,7 +429,7 @@ for p in passos:
 
 x = [p["rotulo"] for p in passos]
 def curto(v):
-    return f"{br(v / 1000, 2)} bi" if abs(v) >= 1000 else f"{br(v, 1)} mi"
+    return f"{br(v / 1000, 3)} bi" if abs(v) >= 1000 else f"{br(v, 1)} mi"
 
 
 textos = [(curto(p["valor"]) if p["tipo"] == "total" else ("+" if p["valor"] > 0 else "−") + curto(abs(p["valor"]))) for p in passos]
