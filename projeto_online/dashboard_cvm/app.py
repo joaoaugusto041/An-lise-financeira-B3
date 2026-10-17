@@ -36,6 +36,7 @@ SUGESTAO = {  # sugestão automática de conta da planilha (confirmável na barr
 }
 UNIDADES = {"R$ milhões": 1.0, "R$ mil": 0.001, "R$": 1e-6}
 SEM_CONTA = "(usar valor de exemplo)"
+NAO_APLICA = "(não se aplica — considerar zero)"
 
 ANOS_REF = [2022, 2023, 2024, 2025, 2026]
 REF = {  # R$ milhões (ilustrativo)
@@ -66,6 +67,8 @@ def br(v, casas=1):
 
 
 def mi(v, casas=1):
+    if abs(v) >= 1000:
+        return f"R$ {br(v / 1000, 2)} bi"
     return f"R$ {br(v, casas)} mi"
 
 
@@ -170,11 +173,14 @@ def preparar_planilha():
 df_num, df_txt = preparar_planilha()
 eh_ano = lambda c: str(c).isdigit() and len(str(c)) == 4
 anos_planilha = [int(c) for c in df_num.columns[1:] if eh_ano(c)] if not df_num.empty else []
-ANOS = sorted(set(ANOS_REF) | set(anos_planilha))
+anos_com_dado = [int(c) for c in df_num.columns[1:] if eh_ano(c) and df_num[c].notna().any()] if not df_num.empty else []
+ANOS = sorted(anos_com_dado) if anos_com_dado else sorted(ANOS_REF)
 
 
 def valor_planilha(chave, ano):
     conta = st.session_state.get(f"map_{chave}", SEM_CONTA)
+    if conta == NAO_APLICA:
+        return 0.0
     if conta == SEM_CONTA or df_num.empty or str(ano) not in df_num.columns:
         return None
     linha = df_num[df_num["Conta / Indicador"] == conta]
@@ -231,11 +237,14 @@ with st.sidebar:
     else:
         st.caption("Escolha qual conta da planilha da B3 corresponde a cada item do dashboard. "
                    "Confira as sugestões automáticas.")
-        st.selectbox("Unidade da planilha", list(UNIDADES), key="unidade_planilha")
+        _ref_col = str(max(anos_com_dado)) if anos_com_dado else None
+        _maior = df_num[_ref_col].abs().max() if _ref_col else 0
+        _idx_un = 2 if _maior > 1e8 else 1 if _maior > 1e5 else 0  # R$ / R$ mil / R$ milhões
+        st.selectbox("Unidade da planilha (detectada automaticamente)", list(UNIDADES), index=_idx_un, key="unidade_planilha")
         contas = list(dict.fromkeys(df_num["Conta / Indicador"]))
         for chave, nome in NOMES_ITENS.items():
             achada = next((i for i, c in enumerate(contas) if _re.search(SUGESTAO[chave], c, _re.I)), None)
-            st.selectbox(nome, [SEM_CONTA] + contas, index=(achada + 1) if achada is not None else 0, key=f"map_{chave}")
+            st.selectbox(nome, [SEM_CONTA, NAO_APLICA] + contas, index=(achada + 2) if achada is not None else 0, key=f"map_{chave}")
 
 MODELOS = {a: montar_modelo(a) for a in ANOS}
 CHAVES_BASE = ["receita_bruta", "deducoes", "despesas", "ajustes", "amortizacao", "financeiro", "ir"]
