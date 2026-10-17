@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilização visual limpa e profissional
+# Estilização visual limpa
 st.markdown("""
     <style>
         .metric-card { background-color: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef; }
@@ -54,7 +54,7 @@ if df_b3_raw is not None:
                 
                 texto = str(val).strip()
                 # Se for ano (ex: 2023, 2024, 2025) ou não for número puro, não formata com milhar
-                if nome_coluna.isdigit() or len(texto) == 4 and texto.isdigit():
+                if nome_coluna.isdigit() and len(nome_coluna) == 4:
                     return texto
                 
                 num = float(texto)
@@ -89,14 +89,31 @@ if df_b3_raw is not None and not df_gerencial.empty:
         st.plotly_chart(fig_linhas, use_container_width=True)
 
     with col2:
-        st.markdown("#### 🍩 Decomposição da Estrutura de Custos")
+        st.markdown("#### 🍩 Decomposição da Estrutura de Custos (R$ mi)")
+        
+        # DataFrame atualizado com Valores em R$ Milhões e Percentuais visíveis
         df_custos = pd.DataFrame({
             "Categoria": ["Pessoal e Encargos", "Tecnologia / Dados (TI)", "Serviços de Terceiros", "Depreciação e Amortização", "Outras Despesas"],
-            "Valor": [35, 28, 18, 13, 6]
+            "Valor_Milhoes": [920, 735, 475, 340, 160],
+            "Texto_Valor": ["R$ 920 mi", "R$ 735 mi", "R$ 475 mi", "R$ 340 mi", "R$ 160 mi"]
         })
-        fig_rosca = px.pie(df_custos, names="Categoria", values="Valor", hole=0.5, color_discrete_sequence=px.colors.qualitative.Prism)
-        fig_rosca.update_traces(textposition='inside', textinfo='percent+label')
-        fig_rosca.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", margin=dict(t=20, b=20, l=20, r=20), showlegend=False)
+        
+        fig_rosca = px.pie(
+            df_custos, names="Categoria", values="Valor_Milhoes", hole=0.5,
+            color_discrete_sequence=px.colors.qualitative.Prism,
+            custom_data=["Texto_Valor"]
+        )
+        fig_rosca.update_traces(
+            textposition='inside', 
+            textinfo='percent+label',
+            hovertemplate='<b>%{label}</b><br>Valor: %{customdata[0]}<br>Participação: %{percent}<extra></extra>'
+        )
+        fig_rosca.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)", 
+            paper_bgcolor="rgba(0,0,0,0)", 
+            margin=dict(t=20, b=20, l=20, r=20), 
+            showlegend=False
+        )
         st.plotly_chart(fig_rosca, use_container_width=True)
 
     st.markdown("#### 📊 Ponte de Resultado (Waterfall): Da Receita ao Lucro Líquido")
@@ -113,7 +130,7 @@ if df_b3_raw is not None and not df_gerencial.empty:
     st.plotly_chart(fig_waterfall, use_container_width=True)
 
 # --------------------------------------------------
-# DRE GERENCIAL COMPLETO (B3 - API RI) COM UX AVANÇADA
+# DRE GERENCIAL COMPLETO (B3 - API RI) COM UX ROBUSTA
 # --------------------------------------------------
 st.markdown("---")
 st.subheader("📋 DRE Gerencial Completo — B3 (API RI)")
@@ -121,19 +138,25 @@ st.markdown("🔎 *Dica de Análise:* Utilize os botões abaixo para alternar ra
 
 if df_b3_raw is not None and not df_gerencial.empty:
     
-    # Controles de Experiência do Usuário (UX) - Botões de Visão
+    # Controles de Experiência do Usuário (UX)
     col_bt1, col_bt2, col_bt3 = st.columns([1, 1, 2])
     with col_bt1:
         ver_apenas_anos = st.checkbox("📅 Exibir Apenas Anos", value=False, help="Filtra a tabela ocultando os trimestres e exibindo apenas os consolidados anuais.")
     with col_bt2:
         destacar_oportunidades = st.checkbox("🎯 Modo Foco / Oportunidade", value=False, help="Filtra automaticamente linhas contendo despesas, EBITDA e Lucro para auditoria rápida.")
 
-    # Processamento das colunas com base nos botões de UX
+    # Tratamento seguro e robusto para o filtro de colunas anuais
     colunas_atuais = df_gerencial.columns.tolist()
     if ver_apenas_anos:
-        # Mantém a coluna de indicador e apenas colunas de 4 dígitos (anos)
-        colunas_filtradas = [colunas_atuais[0]] + [c for c in colunas_atuais[1:] if c.isdigit() and len(c) == 4]
-        df_exibicao = df_gerencial[colunas_filtradas].copy()
+        # Identifica estritamente colunas que possuem exatamente 4 dígitos numéricos (os anos)
+        colunas_anos = [c for c in colunas_atuais if str(c).strip().isdigit() and len(str(c).strip()) == 4]
+        
+        # Garante que a coluna de indicador venha primeiro, seguida apenas dos anos encontrados
+        if colunas_anos:
+            colunas_filtradas = [colunas_atuais[0]] + colunas_anos
+            df_exibicao = df_gerencial[colunas_filtradas].copy()
+        else:
+            df_exibicao = df_gerencial.copy()
     else:
         df_exibicao = df_gerencial.copy()
 
@@ -148,20 +171,19 @@ if df_b3_raw is not None and not df_gerencial.empty:
         mascara_b3 = df_exibicao["Conta / Indicador"].astype(str).str.contains(busca_b3, case=False, na=False)
         df_exibicao = df_exibicao[mascara_b3]
     elif destacar_oportunidades:
-        # Filtra linhas-chave de middle-line para bater o olho e achar oportunidades
         termos_foco = ["EBITDA", "Despesas", "Lucro", "Receita Líquida"]
         padrao = "|".join(termos_foco)
         df_exibicao = df_exibicao[df_exibicao["Conta / Indicador"].astype(str).str.contains(padrao, case=False, na=False)]
 
-    # Dicas de Ferramentas / Ajuda contextual interativa por coluna
+    # Dicas de Ferramentas / Ajuda contextual interativa
     with st.expander("💡 Guia de Leitura e Dicas de Ferramentas por Coluna"):
         st.markdown("""
         - **Conta / Indicador:** Descrição contábil e gerencial da linha. *Dica:* Procure por desvios bruscos entre trimestres para identificar estouros de orçamento em TI ou Pessoal.
-        - **Colunas de Anos (ex: 2024, 2025):** Visão macro de longo prazo. *Ferramenta:* Excelente para análise CAGR (crescimento anual composto).
-        - **Colunas de Trimestres (ex: 1T25, 2T25):** Sazonalidade de volumes negociados na bolsa. *Ferramenta:* Ideal para identificar o impacto de eventos de mercado específicos em cada trimestre.
+        - **Colunas de Anos (ex: 2024, 2025):** Visão macro de longo prazo. *Ferramenta:* Excelente para análise de tendência histórica.
+        - **Colunas de Trimestres (ex: 1T25, 2T25):** Sazonalidade de volumes negociados na bolsa. *Ferramenta:* Ideal para rastrear o impacto trimestral de custos extraordinários.
         """)
 
-    # Exibição da tabela gerencial polida
+    # Exibição da tabela polida
     st.dataframe(
         df_exibicao,
         use_container_width=True,
